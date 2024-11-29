@@ -18,7 +18,7 @@ if 'data' not in st.session_state:
     st.session_state['data'] = pd.DataFrame()
 
 # Main area for data import
-st.header("Import Gantt Data")
+st.header("1. Import Gantt Data")
 
 import_option = st.radio(
     "Choose data import method:",
@@ -93,15 +93,19 @@ elif import_option == 'Paste Data':
                 st.success("Data loaded successfully!")
 
 # Display the current data
-st.header("Current Data")
+st.header("2. Current Data")
 if not st.session_state['data'].empty:
-    st.dataframe(st.session_state['data'])
+    # Allow users to edit the DataFrame
+    edited_df = st.data_editor(st.session_state['data'], num_rows="dynamic")
+    if edited_df is not None:
+        st.session_state['data'] = edited_df
+        st.success("Data updated successfully!")
 else:
     st.warning("No data available. Please upload an Excel file or paste data to proceed.")
 
 # Proceed only if data is available
 if not st.session_state['data'].empty:
-    st.subheader("1. Column Remapping")
+    st.header("3. Column Remapping")
     st.markdown("Map your dataset's columns to the required fields for the Gantt chart.")
 
     all_columns = st.session_state['data'].columns.tolist()
@@ -114,11 +118,11 @@ if not st.session_state['data'].empty:
     with col3:
         end_date_col = st.selectbox("Select End Date Column:", options=all_columns, key='end_date_col')
 
-    # Validate the selected columns
+    # Apply Column Mapping
     if st.button("Apply Column Mapping"):
         if activity_col and start_date_col and end_date_col:
-            # Rename columns to standard names
             try:
+                # Rename columns to standard names
                 mapped_data = st.session_state['data'].rename(columns={
                     activity_col: 'Activity',
                     start_date_col: 'Start Date',
@@ -145,7 +149,7 @@ if not st.session_state['data'].empty:
     if set(['Activity', 'Start Date', 'End Date']).issubset(st.session_state['data'].columns):
         # Data Cleaning: Convert date columns to datetime
         for date_col in ['Start Date', 'End Date']:
-            st.session_state['data'][date_col] = pd.to_datetime(st.session_state['data'][date_col], errors='coerce')
+            st.session_state['data'][date_col] = pd.to_datetime(st.session_state['data'][date_col], format='%d/%m/%Y', errors='coerce')
 
         # Drop rows with invalid dates
         initial_row_count = st.session_state['data'].shape[0]
@@ -154,8 +158,18 @@ if not st.session_state['data'].empty:
         if final_row_count < initial_row_count:
             st.info(f"Dropped {initial_row_count - final_row_count} row(s) due to invalid dates.")
 
+        # Shorten Activity names to 50 characters
+        st.session_state['data']['Activity'] = st.session_state['data']['Activity'].astype(str).str.slice(0, 50)
+
+        # Editable DataFrame
+        st.header("4. Edit Data")
+        edited_df = st.data_editor(st.session_state['data'], num_rows="dynamic")
+        if edited_df is not None:
+            st.session_state['data'] = edited_df
+            st.success("Data updated successfully!")
+
         # Add new activity
-        st.subheader("2. Add New Activity")
+        st.header("5. Add New Activity")
         with st.form("add_activity_form"):
             new_activity = st.text_input("Activity")
             new_start = st.date_input("Start Date")
@@ -166,6 +180,8 @@ if not st.session_state['data'].empty:
                     if new_end < new_start:
                         st.error("End Date cannot be before Start Date.")
                     else:
+                        # Shorten Activity name to 50 characters
+                        new_activity = new_activity[:50]
                         new_row = {
                             'Activity': new_activity,
                             'Start Date': pd.to_datetime(new_start),
@@ -177,7 +193,7 @@ if not st.session_state['data'].empty:
                     st.error("Please fill in all fields.")
 
         # Remove activity
-        st.subheader("3. Remove Activity")
+        st.header("6. Remove Activity")
         with st.form("remove_activity_form"):
             if not st.session_state['data']['Activity'].empty:
                 activity_to_remove = st.selectbox("Select activity to remove", st.session_state['data']['Activity'].unique())
@@ -189,7 +205,7 @@ if not st.session_state['data'].empty:
                 st.warning("No activities available to remove.")
 
         # Generate Gantt Chart
-        st.subheader("4. Gantt Chart")
+        st.header("7. Gantt Chart")
 
         if st.session_state['data'].empty:
             st.warning("No data available to generate Gantt chart.")
@@ -206,7 +222,7 @@ if not st.session_state['data'].empty:
             st.plotly_chart(fig, use_container_width=True)
 
         # Option to download the data
-        st.subheader("5. Download Data")
+        st.header("8. Download Data")
         csv = st.session_state['data'].to_csv(index=False).encode('utf-8')
         st.download_button(
             label="Download data as CSV",
