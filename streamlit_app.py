@@ -57,20 +57,24 @@ elif import_option == 'Paste Data':
         horizontal=True
     )
     
-    # Determine the separator
+    # Initialize a container for the paste area
+    paste_container = st.empty()
+    
     if separator_option == 'Auto-detect':
         # Try to infer the separator
         try:
-            sniffer = csv.Sniffer()
-            sample = st.text_area("Paste your data here (Sample for detection):", height=150)
+            sample = paste_container.text_area("Paste a sample of your data here for separator detection:", height=150)
             if sample:
-                dialect = sniffer.sniff(sample)
+                sniffer = csv.Sniffer()
+                dialect = sniffer.sniff(sample, delimiters=[',', '\t', ';'])
                 sep = dialect.delimiter
                 st.write(f"**Detected Separator:** '{sep}'")
-                df = load_csv(sample, sep)
-                if df is not None:
-                    st.session_state['data'] = df
-                    st.success("Data loaded successfully!")
+                full_data = paste_container.text_area("Paste your full data here:", height=300)
+                if full_data:
+                    df = load_csv(full_data, sep)
+                    if df is not None:
+                        st.session_state['data'] = df
+                        st.success("Data loaded successfully!")
         except csv.Error:
             st.warning("Could not automatically detect the separator. Please select it manually below.")
     else:
@@ -81,7 +85,7 @@ elif import_option == 'Paste Data':
             'Semicolon (;)': ';'
         }
         sep = sep_map.get(separator_option, ',')  # Default to comma
-        pasted_data = st.text_area("Paste your data here:", height=300)
+        pasted_data = paste_container.text_area("Paste your data here:", height=300)
         if pasted_data:
             df = load_csv(pasted_data, sep)
             if df is not None:
@@ -97,32 +101,49 @@ else:
 
 # Proceed only if data is available
 if not st.session_state['data'].empty:
-    # Data Cleaning: Keep only Activity, Start Date, End Date
-    st.subheader("Manage Columns")
+    st.subheader("1. Column Remapping")
+    st.markdown("Map your dataset's columns to the required fields for the Gantt chart.")
 
-    with st.expander("Remove Unwanted Columns"):
-        all_columns = st.session_state['data'].columns.tolist()
-        # Define the required columns
-        required_columns = ['Activity', 'Start Date', 'End Date']
-        # Determine which required columns are present
-        existing_required = [col for col in required_columns if col in all_columns]
-        # Set default to existing required columns
-        default_columns = existing_required if existing_required else all_columns[:3]  # Fallback to first three columns if required not present
-        columns_to_keep = st.multiselect(
-            "Select columns to keep:",
-            options=all_columns,
-            default=default_columns
-        )
-        if columns_to_keep:
-            st.session_state['data'] = st.session_state['data'][columns_to_keep]
-            st.success("Columns updated successfully!")
+    all_columns = st.session_state['data'].columns.tolist()
 
-    # Ensure the necessary columns are present
-    missing_columns = [col for col in ['Activity', 'Start Date', 'End Date'] if col not in st.session_state['data'].columns]
-    if missing_columns:
-        st.warning(f"Missing required column(s): {', '.join(missing_columns)}. Please ensure your data includes 'Activity', 'Start Date', and 'End Date'.")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        activity_col = st.selectbox("Select Activity Column:", options=all_columns, key='activity_col')
+    with col2:
+        start_date_col = st.selectbox("Select Start Date Column:", options=all_columns, key='start_date_col')
+    with col3:
+        end_date_col = st.selectbox("Select End Date Column:", options=all_columns, key='end_date_col')
+
+    # Validate the selected columns
+    if st.button("Apply Column Mapping"):
+        if activity_col and start_date_col and end_date_col:
+            # Rename columns to standard names
+            try:
+                mapped_data = st.session_state['data'].rename(columns={
+                    activity_col: 'Activity',
+                    start_date_col: 'Start Date',
+                    end_date_col: 'End Date'
+                })
+
+                # Select only the mapped columns
+                st.session_state['data'] = mapped_data[['Activity', 'Start Date', 'End Date']]
+
+                st.success("Columns mapped successfully!")
+            except Exception as e:
+                st.error(f"Error in mapping columns: {e}")
+        else:
+            st.error("Please select all three columns.")
+
+    # Display the mapped data
+    st.subheader("Mapped Data")
+    if not st.session_state['data'].empty and set(['Activity', 'Start Date', 'End Date']).issubset(st.session_state['data'].columns):
+        st.dataframe(st.session_state['data'])
     else:
-        # Convert date columns to datetime
+        st.warning("Please map the columns to proceed.")
+
+    # Continue only if required columns are present
+    if set(['Activity', 'Start Date', 'End Date']).issubset(st.session_state['data'].columns):
+        # Data Cleaning: Convert date columns to datetime
         for date_col in ['Start Date', 'End Date']:
             st.session_state['data'][date_col] = pd.to_datetime(st.session_state['data'][date_col], errors='coerce')
 
@@ -134,7 +155,7 @@ if not st.session_state['data'].empty:
             st.info(f"Dropped {initial_row_count - final_row_count} row(s) due to invalid dates.")
 
         # Add new activity
-        st.subheader("Add New Activity")
+        st.subheader("2. Add New Activity")
         with st.form("add_activity_form"):
             new_activity = st.text_input("Activity")
             new_start = st.date_input("Start Date")
@@ -156,16 +177,19 @@ if not st.session_state['data'].empty:
                     st.error("Please fill in all fields.")
 
         # Remove activity
-        st.subheader("Remove Activity")
+        st.subheader("3. Remove Activity")
         with st.form("remove_activity_form"):
-            activity_to_remove = st.selectbox("Select activity to remove", st.session_state['data']['Activity'].unique())
-            remove_submitted = st.form_submit_button("Remove Activity")
-            if remove_submitted:
-                st.session_state['data'] = st.session_state['data'][st.session_state['data']['Activity'] != activity_to_remove]
-                st.success(f"Activity '{activity_to_remove}' removed!")
+            if not st.session_state['data']['Activity'].empty:
+                activity_to_remove = st.selectbox("Select activity to remove", st.session_state['data']['Activity'].unique())
+                remove_submitted = st.form_submit_button("Remove Activity")
+                if remove_submitted:
+                    st.session_state['data'] = st.session_state['data'][st.session_state['data']['Activity'] != activity_to_remove]
+                    st.success(f"Activity '{activity_to_remove}' removed!")
+            else:
+                st.warning("No activities available to remove.")
 
         # Generate Gantt Chart
-        st.subheader("Gantt Chart")
+        st.subheader("4. Gantt Chart")
 
         if st.session_state['data'].empty:
             st.warning("No data available to generate Gantt chart.")
@@ -182,7 +206,7 @@ if not st.session_state['data'].empty:
             st.plotly_chart(fig, use_container_width=True)
 
         # Option to download the data
-        st.subheader("Download Data")
+        st.subheader("5. Download Data")
         csv = st.session_state['data'].to_csv(index=False).encode('utf-8')
         st.download_button(
             label="Download data as CSV",
