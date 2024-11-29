@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from io import StringIO
+import csv
 
 # Set the page configuration
 st.set_page_config(
@@ -21,7 +22,7 @@ st.header("Import Gantt Data")
 
 import_option = st.radio(
     "Choose data import method:",
-    ('Upload Excel File', 'Paste CSV Data'),
+    ('Upload Excel File', 'Paste Data'),
     horizontal=True
 )
 
@@ -33,12 +34,12 @@ def load_excel(uploaded_file):
         st.error(f"Error reading Excel file: {e}")
         return None
 
-def load_csv(pasted_data):
+def load_csv(pasted_data, sep):
     try:
-        df = pd.read_csv(StringIO(pasted_data))
+        df = pd.read_csv(StringIO(pasted_data), sep=sep)
         return df
     except Exception as e:
-        st.error(f"Error parsing CSV data: {e}")
+        st.error(f"Error parsing data with separator '{sep}': {e}")
         return None
 
 if import_option == 'Upload Excel File':
@@ -48,20 +49,51 @@ if import_option == 'Upload Excel File':
         if df is not None:
             st.session_state['data'] = df
             st.success("Excel file loaded successfully!")
-elif import_option == 'Paste CSV Data':
-    pasted_csv = st.text_area("Paste your CSV data here", height=300)
-    if pasted_csv:
-        df = load_csv(pasted_csv)
-        if df is not None:
-            st.session_state['data'] = df
-            st.success("CSV data loaded successfully!")
+elif import_option == 'Paste Data':
+    # Allow the user to choose the separator or auto-detect
+    separator_option = st.radio(
+        "Select data separator:",
+        ('Auto-detect', 'Comma (,)', 'Tab (\\t)', 'Semicolon (;)'),
+        horizontal=True
+    )
+    
+    # Determine the separator
+    if separator_option == 'Auto-detect':
+        # Try to infer the separator
+        try:
+            sniffer = csv.Sniffer()
+            sample = st.text_area("Paste your data here (Sample for detection):", height=150)
+            if sample:
+                dialect = sniffer.sniff(sample)
+                sep = dialect.delimiter
+                st.write(f"**Detected Separator:** '{sep}'")
+                df = load_csv(sample, sep)
+                if df is not None:
+                    st.session_state['data'] = df
+                    st.success("Data loaded successfully!")
+        except csv.Error:
+            st.warning("Could not automatically detect the separator. Please select it manually below.")
+    else:
+        # Map the selected option to actual separator
+        sep_map = {
+            'Comma (,)': ',',
+            'Tab (\\t)': '\t',
+            'Semicolon (;)': ';'
+        }
+        sep = sep_map.get(separator_option, ',')  # Default to comma
+        pasted_data = st.text_area("Paste your data here:", height=300)
+        if pasted_data:
+            df = load_csv(pasted_data, sep)
+            if df is not None:
+                st.session_state['data'] = df
+                st.success("Data loaded successfully!")
 
 # Display the current data
 st.header("Current Data")
 if not st.session_state['data'].empty:
     st.dataframe(st.session_state['data'])
 else:
-    st.warning("No data available. Please upload an Excel file or paste CSV data to proceed.")
+    st.warning("No data available. Please upload an Excel file or paste data to proceed.")
 
 # Proceed only if data is available
 if not st.session_state['data'].empty:
