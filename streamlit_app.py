@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 from io import StringIO
 import csv
+import plotly.io as pio
 
 # Set the page configuration
 st.set_page_config(
@@ -107,9 +108,9 @@ else:
 if not st.session_state['data'].empty:
     st.header("3. Column Remapping")
     st.markdown("Map your dataset's columns to the required fields for the Gantt chart.")
-
+    
     all_columns = st.session_state['data'].columns.tolist()
-
+    
     col1, col2, col3 = st.columns(3)
     with col1:
         activity_col = st.selectbox("Select Activity Column:", options=all_columns, key='activity_col')
@@ -117,7 +118,7 @@ if not st.session_state['data'].empty:
         start_date_col = st.selectbox("Select Start Date Column:", options=all_columns, key='start_date_col')
     with col3:
         end_date_col = st.selectbox("Select End Date Column:", options=all_columns, key='end_date_col')
-
+    
     # Apply Column Mapping
     if st.button("Apply Column Mapping"):
         if activity_col and start_date_col and end_date_col:
@@ -128,46 +129,51 @@ if not st.session_state['data'].empty:
                     start_date_col: 'Start Date',
                     end_date_col: 'End Date'
                 })
-
+    
                 # Select only the mapped columns
                 st.session_state['data'] = mapped_data[['Activity', 'Start Date', 'End Date']]
-
+    
                 st.success("Columns mapped successfully!")
             except Exception as e:
                 st.error(f"Error in mapping columns: {e}")
         else:
             st.error("Please select all three columns.")
-
+    
     # Display the mapped data
     st.subheader("Mapped Data")
     if not st.session_state['data'].empty and set(['Activity', 'Start Date', 'End Date']).issubset(st.session_state['data'].columns):
         st.dataframe(st.session_state['data'])
     else:
         st.warning("Please map the columns to proceed.")
-
+    
     # Continue only if required columns are present
     if set(['Activity', 'Start Date', 'End Date']).issubset(st.session_state['data'].columns):
         # Data Cleaning: Convert date columns to datetime
         for date_col in ['Start Date', 'End Date']:
-            st.session_state['data'][date_col] = pd.to_datetime(st.session_state['data'][date_col], format='%d/%m/%Y', errors='coerce')
-
+            # Attempt to parse dates with dayfirst=True
+            st.session_state['data'][date_col] = pd.to_datetime(
+                st.session_state['data'][date_col],
+                dayfirst=True,
+                errors='coerce'
+            )
+    
         # Drop rows with invalid dates
         initial_row_count = st.session_state['data'].shape[0]
         st.session_state['data'] = st.session_state['data'].dropna(subset=['Start Date', 'End Date'])
         final_row_count = st.session_state['data'].shape[0]
         if final_row_count < initial_row_count:
             st.info(f"Dropped {initial_row_count - final_row_count} row(s) due to invalid dates.")
-
+    
         # Shorten Activity names to 50 characters
         st.session_state['data']['Activity'] = st.session_state['data']['Activity'].astype(str).str.slice(0, 50)
-
-        # Editable DataFrame
+    
+        # Editable DataFrame after cleaning
         st.header("4. Edit Data")
         edited_df = st.data_editor(st.session_state['data'], num_rows="dynamic")
         if edited_df is not None:
             st.session_state['data'] = edited_df
             st.success("Data updated successfully!")
-
+    
         # Add new activity
         st.header("5. Add New Activity")
         with st.form("add_activity_form"):
@@ -191,7 +197,7 @@ if not st.session_state['data'].empty:
                         st.success("New activity added!")
                 else:
                     st.error("Please fill in all fields.")
-
+    
         # Remove activity
         st.header("6. Remove Activity")
         with st.form("remove_activity_form"):
@@ -203,10 +209,10 @@ if not st.session_state['data'].empty:
                     st.success(f"Activity '{activity_to_remove}' removed!")
             else:
                 st.warning("No activities available to remove.")
-
+    
         # Generate Gantt Chart
         st.header("7. Gantt Chart")
-
+    
         if st.session_state['data'].empty:
             st.warning("No data available to generate Gantt chart.")
         else:
@@ -217,10 +223,49 @@ if not st.session_state['data'].empty:
                 y="Activity",
                 title="Gantt Chart",
                 labels={"Activity": "Activity", "Start Date": "Start Date", "End Date": "End Date"},
+                hover_data=["Activity", "Start Date", "End Date"]
             )
             fig.update_yaxes(autorange="reversed")  # To have the first activity on top
+    
+            # Enhance the layout with month and week separators
+            fig.update_layout(
+                xaxis=dict(
+                    tickformat="%b %d",
+                    dtick="M1",  # Monthly ticks
+                    ticklabelmode="period",
+                    title="Timeline",
+                ),
+                yaxis_title="Activity",
+                template="plotly_white",
+                title_x=0.5
+            )
+    
+            # Customize x-axis to show months and weeks
+            fig.update_xaxes(
+                rangeslider_visible=True,
+                rangeselector=dict(
+                    buttons=list([
+                        dict(count=1, label="1m", step="month", stepmode="backward"),
+                        dict(count=3, label="3m", step="month", stepmode="backward"),
+                        dict(count=6, label="6m", step="month", stepmode="backward"),
+                        dict(step="all")
+                    ])
+                )
+            )
+    
             st.plotly_chart(fig, use_container_width=True)
-
+    
+            # Option to download the Gantt chart as an image
+            st.subheader("Export Gantt Chart as Image")
+            # Provide a button to download the image
+            img_bytes = fig.to_image(format="png")
+            st.download_button(
+                label="Download Gantt Chart as PNG",
+                data=img_bytes,
+                file_name="gantt_chart.png",
+                mime="image/png",
+            )
+    
         # Option to download the data
         st.header("8. Download Data")
         csv = st.session_state['data'].to_csv(index=False).encode('utf-8')
