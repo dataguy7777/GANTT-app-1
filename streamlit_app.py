@@ -2,10 +2,12 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 import numpy as np
 from io import StringIO, BytesIO
 import csv
 from matplotlib.patches import Patch
+from matplotlib.lines import Line2D
 
 # Set the page configuration
 st.set_page_config(
@@ -251,7 +253,8 @@ if not st.session_state['data'].empty:
                     ),
                     yaxis_title="Activity",
                     template="plotly_white",
-                    title_x=0.5
+                    title_x=0.5,
+                    margin=dict(l=100, r=40, t=80, b=40)
                 )
 
                 # Customize x-axis to show months and weeks
@@ -272,22 +275,26 @@ if not st.session_state['data'].empty:
                 fig_plotly.add_vline(x=current_date, line_dash="dash", line_color="red")
                 fig_plotly.add_annotation(
                     x=current_date,
-                    y=0,
+                    y=0.95,
                     xref="x",
                     yref="paper",
                     text="Today",
                     showarrow=True,
                     arrowhead=1,
                     ax=40,
-                    ay=-40
+                    ay=-40,
+                    font=dict(color="red", size=12, family="Arial")
                 )
+
+                # Improve overall aesthetics
+                fig_plotly.update_traces(marker=dict(line=dict(width=0)))
 
                 st.plotly_chart(fig_plotly, use_container_width=True)
 
                 # Option to download the Plotly Gantt chart as an image
                 st.subheader("Export Plotly Gantt Chart as Image")
                 try:
-                    img_bytes_plotly = fig_plotly.to_image(format="png")
+                    img_bytes_plotly = fig_plotly.to_image(format="png", scale=2)
                     st.download_button(
                         label="Download Plotly Gantt Chart as PNG",
                         data=img_bytes_plotly,
@@ -310,50 +317,54 @@ if not st.session_state['data'].empty:
                 df_mat['End Date'] = pd.to_datetime(df_mat['End Date'])
                 df_mat['Duration'] = (df_mat['End Date'] - df_mat['Start Date']).dt.days
 
-                # Assign unique colors to activities
+                # Assign unique colors to activities using a professional palette
                 unique_activities = df_mat['Activity'].unique()
-                colors = plt.cm.tab20.colors
-                color_map = {activity: colors[i % len(colors)] for i, activity in enumerate(unique_activities)}
+                # Use a colormap with sufficient distinct colors
+                cmap = plt.cm.get_cmap('tab20', len(unique_activities))
+                color_map = {activity: cmap(i) for i, activity in enumerate(unique_activities)}
                 df_mat['Color'] = df_mat['Activity'].map(color_map)
 
                 # Create a figure and axis
-                fig_mat, ax_mat = plt.subplots(figsize=(16, max(6, len(df_mat)*0.5)))
+                fig_mat, ax_mat = plt.subplots(figsize=(18, max(6, len(df_mat)*0.6)))
 
                 # Plot bars
                 for idx, row in df_mat.iterrows():
-                    ax_mat.barh(row['Activity'], row['Duration'], left=row['Start Date'], color=row['Color'], edgecolor='black')
-
+                    ax_mat.barh(row['Activity'], row['Duration'], left=row['Start Date'], color=row['Color'], edgecolor='black', height=0.6)
+                    
                     # Add completion text if 'Completion' column exists
                     if 'Completion' in df_mat.columns:
                         completion = row['Completion']
-                        ax_mat.text(row['End Date'] + pd.Timedelta(days=1), idx, f"{int(completion*100)}%", va='center', alpha=0.8)
+                        ax_mat.text(row['End Date'] + pd.Timedelta(days=1), idx, f"{int(completion*100)}%", va='center', fontsize=9, color='black')
 
                 # Set labels and title
-                ax_mat.set_xlabel('Date')
-                ax_mat.set_ylabel('Activity')
-                ax_mat.set_title('Matplotlib Gantt Chart')
+                ax_mat.set_xlabel('Date', fontsize=12, fontweight='bold')
+                ax_mat.set_ylabel('Activity', fontsize=12, fontweight='bold')
+                ax_mat.set_title('Matplotlib Gantt Chart', fontsize=16, fontweight='bold', pad=20)
 
                 # Improve date formatting
                 ax_mat.xaxis_date()
-                fig_mat.autofmt_xdate()
+                ax_mat.xaxis.set_major_locator(mdates.MonthLocator())
+                ax_mat.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+                ax_mat.xaxis.set_minor_locator(mdates.WeekdayLocator(byweekday=mdates.MO))
+                ax_mat.xaxis.set_minor_formatter(mdates.DateFormatter('%d'))
+                ax_mat.grid(which='major', axis='x', linestyle='--', alpha=0.7)
+                ax_mat.grid(which='minor', axis='x', linestyle=':', alpha=0.5)
+
+                # Rotate date labels for better readability
+                plt.setp(ax_mat.get_xticklabels(), rotation=45, ha='right', fontsize=10)
 
                 # Add legends if 'Category' exists
                 if 'Category' in df_mat.columns:
                     categories = df_mat['Category'].unique()
-                    legend_elements = [Patch(facecolor=color_map[cat], label=cat) for cat in categories]
-                    ax_mat.legend(handles=legend_elements, title='Category')
-
+                    legend_elements = [Patch(facecolor=color_map[activity], label=activity) for activity in unique_activities]
+                    ax_mat.legend(handles=legend_elements, title='Activity', bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
+                
                 # Marking the current date on the chart
                 current_date = pd.Timestamp.today()
-                ax_mat.axvline(x=current_date, color='r', linestyle='dashed', label='Today')
-                ax_mat.text(current_date + pd.Timedelta(days=1), len(df_mat)-1, current_date.strftime('%d/%m'), color='r')
+                ax_mat.axvline(x=current_date, color='red', linestyle='--', linewidth=1.5, label='Today')
+                ax_mat.text(current_date + pd.Timedelta(days=1), len(df_mat)-1, current_date.strftime('%d/%m'), color='red', fontsize=10, va='center')
 
-                # Create legends for categories if they exist
-                if 'Category' in df_mat.columns:
-                    handles = [Patch(color=color_map[cat], label=cat) for cat in categories]
-                    ax_mat.legend(handles=handles, title='Category')
-                
-                # Adjust layout
+                # Adjust layout for better spacing
                 plt.tight_layout()
 
                 # Display the Matplotlib Gantt chart
@@ -361,7 +372,7 @@ if not st.session_state['data'].empty:
 
                 # Export Matplotlib chart as image
                 buf = BytesIO()
-                fig_mat.savefig(buf, format='png', bbox_inches='tight')
+                fig_mat.savefig(buf, format='png', bbox_inches='tight', dpi=300)
                 buf.seek(0)
                 st.download_button(
                     label="Download Matplotlib Gantt Chart as PNG",
